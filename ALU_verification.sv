@@ -6,7 +6,12 @@ class alu_transaction_object;
 	bit [7:0] exp_dout;
 	
 	function void print(string tag="");
+      if (tag=="Driver")begin
+        $display("[%s] A=%0h B=%0h opt=%0h",tag, A, B, opt);
+      end
+      else begin
 		 $display("[%s] A=%0h B=%0h opt=%0h EXP=%0h DUT=%0h",tag, A, B, opt, exp_dout, dut_dout);
+      end
 	endfunction
 endclass
 
@@ -44,25 +49,19 @@ class alu_monitor;
 	
 	task run();
 		@(negedge vif.rst);
-		
+
 		forever begin
-      @(posedge vif.clk);
-      if (vif.load) begin
-        last_A   = vif.A;
-        last_B   = vif.B;
-        last_opt = vif.opt;
-      end
-		
-		@(posedge vif.clk);
-		alu_transaction_object item;
-		item=new();
-		item.A=last_A;
-		item.B=last_B;
-		item.opt=last_opt;
-		item.dut_dout=vif.dout;
-		
-		sco_mbx.put(item);
-		end
+          alu_transaction_object item;
+          @(posedge vif.clk iff vif.load);
+          item = new();
+          item.A   = vif.A;
+          item.B   = vif.B;
+          item.opt = vif.opt;
+          @(posedge vif.clk iff vif.done);
+          #1;  
+          item.dut_dout = vif.dout;
+          sco_mbx.put(item);
+         end
 	endtask
 endclass
 
@@ -176,11 +175,11 @@ class alu_test;
     item.opt = opt;
     env.drv_mbx.put(item);
   endtask
-  
 endclass
 
-interface inf(input bit clk)
-	logic [7:0] A,B;
+interface inf(input bit clk);
+  	logic [7:0] A;
+  	logic [7:0] B;
 	logic [2:0] opt;
 	logic [7:0] dout;
 	logic load,done;
@@ -193,7 +192,7 @@ module tb;
 	
 	always #10 clk=~clk;
 	inf a1(clk);
-	Low_area_ALU(
+	Low_area_ALU r1(
 		.clk(a1.clk),
 		.rst(a1.rst),
 		.A(a1.A),
@@ -202,18 +201,22 @@ module tb;
 		.load(a1.load),
 		.Dout(a1.dout),
 		.done(a1.done));
-		
+  
 	initial begin
-		clk=0;
-		a1.rst=1;
-		a1.load=0;
-		#40;
-		a1.rst=0;
-		
-		alu_test t0=new();
-		t0.env.vif=a1;
-		t0.run();
-		#200 $finish;
+    alu_test t0;
+    t0 = new();
+    t0.env.vif = a1;
+    clk = 0;
+    a1.rst = 1;
+    a1.load = 0;
+      
+    fork
+        t0.run();
+    join_none
+
+    #40;
+    a1.rst = 0;
+    #50000 $finish;
 	end
 endmodule
 
